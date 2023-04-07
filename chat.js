@@ -1,3 +1,110 @@
+const clientId = "67cd7989c7ea46a5b481072433e1dc67";
+const clientSecret = "e5f56792687942498d7995afe3e8ec56";
+
+// Encode the client ID and client secret to be used for authentication
+const basicAuth = btoa(`${clientId}:${clientSecret}`);
+
+async function getAccessToken() {
+  try {
+    const response = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${basicAuth}`,
+      },
+      body: "grant_type=client_credentials",
+    });
+    const data = await response.json();
+    return data.access_token;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function getTopSongsForGenre(genre) {
+  try {
+    const accessToken = await getAccessToken();
+    try {
+      const response = await fetch(
+        `https://api.spotify.com/v1/search?q=genre%3A${genre}&type=track&limit=50`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      const data = await response.json();
+      const tracks = data.tracks.items;
+      const topTracks = tracks
+        .filter((track) => track.popularity > 70) // Filter tracks with popularity score greater than 70
+        .sort((a, b) => b.popularity - a.popularity) // Sort tracks by popularity score in descending order
+        .slice(0, 5) // Take the top 5 tracks
+        .map((track) => track.name);
+      return topTracks;
+    } catch (error) {
+      return [];
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}
+async function getArtistList() {
+  try {
+    const accessToken = await getAccessToken();
+    try {
+      const response_1 = await fetch(
+        "https://api.spotify.com/v1/search?q=genre%3Arock&type=artist&limit=50",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      const data_1 = await response_1.json();
+      const artists = data_1.artists.items;
+      const artistNames = artists.map((artist) => artist.name);
+      return artistNames;
+    } catch (error) {
+      return [];
+    }
+  } catch (error_1) {
+    return console.error(error_1);
+  }
+}
+
+async function getSongsForArtist(artistName) {
+  try {
+    const accessToken = await getAccessToken();
+    try {
+      const response_1 = await fetch(
+        `https://api.spotify.com/v1/search?q=${artistName}&type=artist&limit=1`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      const data_1 = await response_1.json();
+      const artistId = data_1.artists.items[0].id;
+      const response_2 = await fetch(
+        `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=US`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      const data_2 = await response_2.json();
+      const songs = data_2.tracks.slice(0, 5).map((track) => track.name);
+      return songs;
+    } catch (error) {
+      return [];
+    }
+  } catch (error_1) {
+    return console.error(error_1);
+  }
+}
+
 $(function () {
   var INDEX = 0;
   $("#chat-submit").click(function (e) {
@@ -22,14 +129,59 @@ $(function () {
     }, 1000);
   });
 
-  function generate_message(msg, type) {
+  async function get_output(msg) {
+    console.log(msg);
+    const parts = msg.split(/\s+/);
+    const search_term = parts.slice(1).join(" ");
+    console.log("Search term is %s", search_term);
+    if (msg.toLowerCase().includes("artist")) {
+      console.log("Searching Songs based on Artist");
+      const songList = await getSongsForArtist(search_term);
+      return { type: "artist", name: search_term, data: songList };
+    } else if (msg.toLowerCase().includes("genre")) {
+      console.log("Searching songs based on Genre");
+      const songList = await getTopSongsForGenre(search_term);
+      return { type: "genre", name: search_term, data: songList };
+    }
+    return { type: "other", data: ["Sorry", "Excuse Me"] };
+  }
+
+  async function generate_message(msg, type) {
     INDEX++;
     var str = "";
     str += "<div id='cm-msg-" + INDEX + "' class=\"chat-msg " + type + '">';
     str += '          <span class="msg-avatar">';
     str += "          </span>";
     str += '          <div class="cm-msg-text">';
-    str += msg;
+    if (type == "user") {
+      const output = await get_output(msg);
+      console.log(output);
+      let outputList = "";
+      if (output["type"] != "other") {
+        if (output["type"] == "artist") {
+          if (typeof output.data === "undefined" || output.data.length == 0) {
+            str += `Looks like I was unable to find any songs for "${output["name"]}"<br>`;
+          } else {
+            str += `Here are some of the best songs from "${output["name"]}": <br>`;
+          }
+        } else {
+          if (typeof output.data === "undefined" || output.data.length == 0) {
+            str += `Hmmm, seems like I dont know about "${output["name"]}" genre<br>`;
+          } else {
+            str += `Enjoy top songs for "${output["name"]}" genre: <br>`;
+          }
+        }
+        outputList = output.data
+          .map((param, index) => `${index + 1}. ${param}`)
+          .join("<br>");
+      } else {
+        outputList = output.data.join(", ");
+      }
+      str += outputList;
+      console.log(outputList);
+    } else {
+      str += msg;
+    }
     str += "          </div>";
     str += "        </div>";
     $(".chat-logs").append(str);
